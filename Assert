@@ -1,0 +1,216 @@
+// Assert
+        assertNotNull(filename)
+        assertTrue(filename.contains("테스트노트"))
+        assertTrue(filename.endsWith(".md"))
+        
+        // Verify file exists and content
+        val notesDir = File(testContext.filesDir, "notes")
+        val noteFile = File(notesDir, filename)
+        assertTrue(noteFile.exists())
+        
+        val savedContent = noteFile.readText()
+        assertTrue(savedContent.contains("# 테스트 노트"))
+        assertTrue(savedContent.contains("이것은 테스트 노트입니다"))
+    }
+    
+    @Test
+    fun `statistics should update correctly with multiple sessions`() = runTest {
+        // Arrange - Add multiple sessions
+        val sessions = listOf(
+            SessionRecord("s1", "summary", "2024-11-12T10:00:00Z", 100, tokensUsed = 50),
+            SessionRecord("s2", "summary", "2024-11-12T11:00:00Z", 200, tokensUsed = 75),
+            SessionRecord("s3", "continue_reading", "2024-11-12T12:00:00Z", 150),
+            SessionRecord("s4", "summary", "2024-11-12T13:00:00Z", 300, tokensUsed = 100)
+        )
+        
+        // Act
+        sessions.forEach { dataManager.addSessionRecord(it) }
+        val statistics = dataManager.getStatistics()
+        
+        // Assert
+        assertEquals(4, statistics.totalSessions)
+        assertEquals(4, statistics.pagesProcessed)
+        assertEquals(3, statistics.summariesCreated) // Only summary mode sessions
+    }
+}
+
+// MainViewModelTest.kt
+package com.readmark.ui.viewmodel
+
+import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.readmark.data.model.*
+import com.readmark.data.repository.DataManager
+import com.readmark.data.repository.LMStudioRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.*
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mockito.Mock
+import org.mockito.Mockito.*
+import org.mockito.junit.MockitoJUnitRunner
+
+@ExperimentalCoroutinesApi
+@RunWith(MockitoJUnitRunner::class)
+class MainViewModelTest {
+    
+    @get:Rule
+    val instantTaskExecutorRule = InstantTaskExecutorRule()
+    
+    @Mock
+    private lateinit var lmStudioRepository: LMStudioRepository
+    
+    @Mock
+    private lateinit var dataManager: DataManager
+    
+    private lateinit var viewModel: MainViewModel
+    
+    private val testDispatcher = StandardTestDispatcher()
+    
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+        
+        // Setup default mocks
+        runTest {
+            `when`(dataManager.getConfig()).thenReturn(AppConfig())
+            `when`(dataManager.getStatistics()).thenReturn(AppStatistics())
+            `when`(dataManager.getRecentSessions(any())).thenReturn(emptyList())
+        }
+        
+        viewModel = MainViewModel(lmStudioRepository, dataManager)
+    }
+    
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+    
+    @Test
+    fun `testConnection should update connection state correctly on success`() = runTest {
+        // Arrange
+        val successResult = ConnectionResult(
+            success = true,
+            message = "연결 성공",
+            models = listOf("test-model-1", "test-model-2")
+        )
+        `when`(lmStudioRepository.testConnection(any(), any())).thenReturn(successResult)
+        `when`(dataManager.updateConfig(any())).thenReturn(true)
+        `when`(dataManager.getConfig()).thenReturn(AppConfig())
+        
+        // Act
+        viewModel.testConnection("http://localhost:1234", "test-key")
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        // Assert
+        val connectionState = viewModel.connectionState.first()
+        assertNotNull(connectionState)
+        assertTrue(connectionState!!.success)
+        assertEquals("연결 성공", connectionState.message)
+        assertEquals(2, connectionState.models.size)
+        
+        // Verify repository was called
+        verify(lmStudioRepository).testConnection("http://localhost:1234", "test-key")
+        verify(dataManager).updateConfig(any())
+    }
+    
+    @Test
+    fun `processText should handle summary mode correctly`() = runTest {
+        // Arrange
+        val testText = "테스트 텍스트 내용"
+        val mockResponse = ChatCompletionResponse(
+            choices = listOf(
+                Choice(
+                    message = Message("assistant", "## 요약\n테스트 요약 내용"),
+                    index = 0
+                )
+            ),
+            usage = Usage(totalTokens = 150)
+        )
+        
+        `when`(lmStudioRepository.testConnection()).thenReturn(
+            ConnectionResult(success = true, message = "OK")
+        )
+        `when`(lmStudioRepository.generateSummary(any(), any(), any()))
+            .thenReturn(Result.success(mockResponse))
+        `when`(dataManager.addSessionRecord(any())).thenReturn(true)
+        `when`(dataManager.getStatistics()).thenReturn(AppStatistics())
+        `when`(dataManager.getRecentSessions(any())).thenReturn(emptyList())
+        
+        // Act
+        viewModel.processText(testText, WorkMode.SUMMARY)
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        // Assert
+        val result = viewModel.processingResult.first()
+        assertNotNull(result)
+        assertTrue(result is ProcessingResult.Success)
+        
+        val successResult = result as ProcessingResult.Success
+        assertEquals("## 요약\n테스트 요약 내용", successResult.content)
+        assertEquals(150, successResult.tokensUsed)
+        assertEquals("summary", successResult.mode)
+        
+        // Verify session was saved
+        verify(dataManager).addSessionRecord(any())
+    }
+}
+
+// 통합 테스트 예제
+// IntegrationTest.kt
+package com.readmark
+
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.readmark.data.repository.DataManager
+import com.readmark.data.repository.LMStudioRepository
+import com.readmark.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class IntegrationTest {
+    
+    private lateinit var dataManager: DataManager
+    private lateinit var lmStudioRepository: LMStudioRepository
+    private lateinit var viewModel: MainViewModel
+    
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        dataManager = DataManager(context)
+        lmStudioRepository = LMStudioRepository()
+        viewModel = MainViewModel(lmStudioRepository, dataManager)
+    }
+    
+    @Test
+    fun `full workflow should work end to end`() = runTest {
+        // 1. Initial setup should load default config
+        val initialConfig = dataManager.getConfig()
+        assertNotNull(initialConfig)
+        assertEquals("http://192.168.1.100:1234", initialConfig.lmStudio.endpoint)
+        
+        // 2. Update configuration
+        val success = dataManager.updateConfig(
+            mapOf(
+                "endpoint" to "http://localhost:1234",
+                "temperature" to 0.8f
+            )
+        )
+        assertTrue(success)
+        
+        // 3. Test session recording and statistics
+        val statistics = dataManager.getStatistics()
+        assertEquals(1, statistics.totalSessions)
+        assertEquals(1, statistics.pagesProcessed)
+        assertEquals(1, statistics.summariesCreated)
+    }
+}

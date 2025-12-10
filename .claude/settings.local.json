@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm:*)",
+      "Bash(./gradlew.bat clean assembleDebug)",
+      "Bash(.gradlew.bat clean build:*)",
+      "Bash(/c/Users/shuva/AppData/Local/Android/Sdk/emulator/emulator.exe:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(dir:*)",
+      "Bash(wmic logicaldisk:*)",
+      "Bash(C:/Users/shuva/AppData/Local/Android/Sdk/cmdline-tools/latest/bin/sdkmanager.bat --list)",
+      "Bash(findstr:*)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\tools\\bin\\sdkmanager.bat\" --list)",
+      "Bash(where:*)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\tools\\bin\\avdmanager.bat\" list)",
+      "Bash(set JAVA_HOME=C:Program FilesAndroidAndroid Studiojbr)",
+      "Bash(./gradlew.bat:*)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jre && gradlew.bat clean\")",
+      "Bash(export JAVA_HOME=\"/c/Program Files/Android/Android Studio/jre\")",
+      "Bash(./clean_build.bat)",
+      "Bash(cmd /c \"C:\\Users\\shuva\\AndroidStudioProjects\\ReadMark\\clean_build.bat\")",
+      "Bash(\"C:\\Program Files\\Android\\Android Studio\\jre\\bin\\java.exe\" -version)",
+      "Bash(adb devices:*)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" devices)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell am start -a android.settings.INPUT_METHOD_SETTINGS)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell ime list -s)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell am start -n com.google.android.inputmethod.latin/.setup.SetupActivity)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell settings get system system_locales)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell getprop persist.sys.locale)",
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell dumpsys input_method)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
