@@ -34,9 +34,9 @@ class LMStudioRepository @Inject constructor() {
         .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
         .build()
 
-    private var currentEndpoint: String = "http://192.168.1.100:1234"
+    private var currentEndpoint: String = "http://10.0.2.2:1234"
     private var currentApiKey: String = "lm-studio"
-    private var currentModel: String = ""  // testConnection에서 자동으로 설정됨
+    private var currentModel: String = "meta-llama-3-8b-instruct"  // 텍스트 요약/분석 최적 모델
 
     /**
      * LM Studio 연결 테스트
@@ -67,15 +67,29 @@ class LMStudioRepository @Inject constructor() {
                 currentEndpoint = testEndpoint
                 currentApiKey = testApiKey
 
-                // 첫 번째 모델을 기본 모델로 설정
-                if (models.isNotEmpty()) {
-                    currentModel = models.first()
-                    Log.d(TAG, "Using model: $currentModel")
+                // 모델이 없으면 에러 반환 (사용자가 LM Studio에서 모델을 로드해야 함)
+                if (models.isEmpty()) {
+                    Log.w(TAG, "No models loaded in LM Studio")
+                    return@withContext ConnectionResult(
+                        success = false,
+                        message = "LM Studio에 로드된 모델이 없습니다",
+                        suggestion = "LM Studio를 열고 모델을 로드한 후 다시 시도하세요.\n\n" +
+                                "방법:\n" +
+                                "1. LM Studio 실행\n" +
+                                "2. 왼쪽 메뉴에서 모델 선택\n" +
+                                "3. 'Load Model' 버튼 클릭\n" +
+                                "4. 모델 로드 완료 후 이 앱에서 '연결 테스트' 다시 클릭",
+                        models = emptyList()
+                    )
                 }
+
+                // 첫 번째 모델을 기본 모델로 설정
+                currentModel = models.first()
+                Log.d(TAG, "Using model: $currentModel")
 
                 ConnectionResult(
                     success = true,
-                    message = "연결 성공! ${models.size}개의 모델을 찾았습니다.",
+                    message = "연결 성공! ${models.size}개의 모델을 사용할 수 있습니다.",
                     models = models
                 )
             } else {
@@ -123,11 +137,15 @@ class LMStudioRepository @Inject constructor() {
     suspend fun generateSummary(
         text: String,
         temperature: Float = 0.7f,
-        maxTokens: Int = 1000
+        maxTokens: Int = 1500,
+        model: String? = null
     ): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
         try {
             val prompt = buildSummaryPrompt(text)
-            val response = callChatCompletion(prompt, temperature, maxTokens)
+            // 빈 문자열도 null로 처리하고 currentModel 사용
+            val modelToUse = if (model.isNullOrBlank()) currentModel else model
+
+            val response = callChatCompletion(prompt, temperature, maxTokens, modelToUse)
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Summary generation failed", e)
@@ -138,10 +156,16 @@ class LMStudioRepository @Inject constructor() {
     /**
      * 책갈피/이어읽기 위치 찾기
      */
-    suspend fun findBookmark(text: String): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
+    suspend fun findBookmark(
+        text: String,
+        model: String? = null
+    ): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
         try {
             val prompt = buildBookmarkPrompt(text)
-            val response = callChatCompletion(prompt, 0.3f, 500)
+            // 빈 문자열도 null로 처리하고 currentModel 사용
+            val modelToUse = if (model.isNullOrBlank()) currentModel else model
+
+            val response = callChatCompletion(prompt, 0.3f, 500, modelToUse)
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Bookmark finding failed", e)
@@ -152,10 +176,16 @@ class LMStudioRepository @Inject constructor() {
     /**
      * 자동 처리 (모드 자동 감지)
      */
-    suspend fun autoProcess(text: String): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
+    suspend fun autoProcess(
+        text: String,
+        model: String? = null
+    ): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
         try {
             val prompt = buildAutoProcessPrompt(text)
-            val response = callChatCompletion(prompt, 0.5f, 1000)
+            // 빈 문자열도 null로 처리하고 currentModel 사용
+            val modelToUse = if (model.isNullOrBlank()) currentModel else model
+
+            val response = callChatCompletion(prompt, 0.5f, 1500, modelToUse)
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Auto processing failed", e)
@@ -169,17 +199,13 @@ class LMStudioRepository @Inject constructor() {
     private fun callChatCompletion(
         prompt: String,
         temperature: Float,
-        maxTokens: Int
+        maxTokens: Int,
+        model: String
     ): LMStudioResponse {
         val url = "${currentEndpoint.trimEnd('/')}/v1/chat/completions"
 
-        // 모델이 설정되지 않은 경우 예외 발생
-        if (currentModel.isEmpty()) {
-            throw Exception("모델이 설정되지 않았습니다. 먼저 연결 테스트를 수행하세요.")
-        }
-
         val requestBody = JSONObject().apply {
-            put("model", currentModel)  // 모델 필드 추가
+            put("model", model)  // 선택된 모델 사용
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
@@ -214,7 +240,28 @@ class LMStudioRepository @Inject constructor() {
         if (!response.isSuccessful) {
             val errorBody = response.body?.string()
             Log.e("LMStudio", "Error Response: $errorBody")
-            throw Exception("API 요청 실패: ${response.code} - $errorBody")
+
+            // 400 에러 시 더 자세한 안내
+            val errorMessage = when (response.code) {
+                400 -> {
+                    if (errorBody?.contains("Failed to load model") == true) {
+                        "모델 로드 실패: '$model' 모델이 LM Studio에서 로드되지 않았습니다.\n\n" +
+                        "해결 방법:\n" +
+                        "1. LM Studio를 열고 모델이 로드되어 있는지 확인\n" +
+                        "2. 로드되지 않았다면 왼쪽 메뉴에서 모델 선택 후 'Load Model' 클릭\n" +
+                        "3. 모델 로드 완료 후 이 앱에서 '연결 테스트'를 다시 실행\n" +
+                        "4. 사용 가능한 모델 목록에서 선택하여 사용"
+                    } else {
+                        "잘못된 요청 (400): $errorBody"
+                    }
+                }
+                401 -> "인증 실패: API 키를 확인하세요"
+                404 -> "엔드포인트를 찾을 수 없습니다: $url"
+                500 -> "LM Studio 서버 오류: 서버를 재시작해보세요"
+                else -> "API 요청 실패 (${response.code}): $errorBody"
+            }
+
+            throw Exception(errorMessage)
         }
 
         val body = response.body?.string() ?: throw Exception("빈 응답")

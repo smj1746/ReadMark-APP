@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 배경 -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M20,20 L88,20 L88,95 L54,75 L20,95 Z"/>
+
+    <!-- 북마크 리본 -->
+    <path
+        android:fillColor="#E91E63"
+        android:pathData="M88,20 L98,20 L98,95 L88,88 Z"/>
+
+    <!-- 테두리 -->
+    <path
+        android:strokeColor="#4A148C"
+        android:strokeWidth="3"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M20,20 L88,20 L88,95 L54,75 L20,95 Z"/>
+</vector>
