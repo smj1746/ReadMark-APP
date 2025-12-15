@@ -19,10 +19,10 @@ data class LMStudioConfig(
     val lastWorkingModel: String? = null,
 
     @SerializedName("temperature")
-    val temperature: Float = 0.7f,
+    val temperature: Float = 0.5f,  // 응답 속도 최적화를 위해 0.5로 설정
 
     @SerializedName("maxTokens")
-    val maxTokens: Int = 1500  // 요약 작업을 위해 1500으로 증가
+    val maxTokens: Int = 600  // 빠른 응답을 위해 600으로 최적화
 )
 
 /**

@@ -22,9 +22,9 @@ class LMStudioRepository @Inject constructor() {
 
     companion object {
         private const val TAG = "LMStudioRepository"
-        private const val CONNECT_TIMEOUT = 60L
-        private const val READ_TIMEOUT = 300L  // 5분
-        private const val WRITE_TIMEOUT = 60L
+        private const val CONNECT_TIMEOUT = 30L  // 30초
+        private const val READ_TIMEOUT = 60L     // 60초 (1분)
+        private const val WRITE_TIMEOUT = 30L    // 30초
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
@@ -136,8 +136,8 @@ class LMStudioRepository @Inject constructor() {
      */
     suspend fun generateSummary(
         text: String,
-        temperature: Float = 0.7f,
-        maxTokens: Int = 1500,
+        temperature: Float = 0.5f,
+        maxTokens: Int = 600,
         model: String? = null
     ): Result<LMStudioResponse> = withContext(Dispatchers.IO) {
         try {
@@ -165,7 +165,7 @@ class LMStudioRepository @Inject constructor() {
             // 빈 문자열도 null로 처리하고 currentModel 사용
             val modelToUse = if (model.isNullOrBlank()) currentModel else model
 
-            val response = callChatCompletion(prompt, 0.3f, 500, modelToUse)
+            val response = callChatCompletion(prompt, 0.3f, 400, modelToUse)
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Bookmark finding failed", e)
@@ -185,7 +185,7 @@ class LMStudioRepository @Inject constructor() {
             // 빈 문자열도 null로 처리하고 currentModel 사용
             val modelToUse = if (model.isNullOrBlank()) currentModel else model
 
-            val response = callChatCompletion(prompt, 0.5f, 1500, modelToUse)
+            val response = callChatCompletion(prompt, 0.5f, 600, modelToUse)
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Auto processing failed", e)
@@ -274,12 +274,7 @@ class LMStudioRepository @Inject constructor() {
      */
     private fun buildSummaryPrompt(text: String): String {
         return """
-            다음 텍스트를 읽고 핵심 내용을 요약해주세요.
-
-            요약 형식:
-            1. 핵심 요약 (2-3문장)
-            2. 주요 키워드 (3-5개)
-            3. 중요 포인트 (bullet points)
+            다음 텍스트의 핵심 내용을 2-3문장으로 간단히 요약하고, 주요 키워드 3개를 제시하세요.
 
             텍스트:
             $text
@@ -291,16 +286,10 @@ class LMStudioRepository @Inject constructor() {
      */
     private fun buildBookmarkPrompt(text: String): String {
         return """
-            다음 텍스트에서 책갈피나 이어읽기 위치를 찾아주세요.
-            페이지 번호, 챕터 정보, 또는 특정 문장을 기준으로 위치를 파악해주세요.
+            이 텍스트에서 책갈피 위치를 찾아 간단히 알려주세요. (페이지/챕터 번호와 앵커 문장)
 
             텍스트:
             $text
-
-            응답 형식:
-            - 위치 정보: (페이지/챕터/문단)
-            - 앵커 문장: (해당 위치의 시작 문장)
-            - 추천: (이어읽기 방법 제안)
         """.trimIndent()
     }
 
@@ -309,10 +298,7 @@ class LMStudioRepository @Inject constructor() {
      */
     private fun buildAutoProcessPrompt(text: String): String {
         return """
-            다음 텍스트를 분석하고 적절한 처리를 수행해주세요.
-
-            1. 책갈피/페이지 정보가 있으면: 이어읽기 위치 정보 제공
-            2. 일반 텍스트면: 요약 및 핵심 키워드 추출
+            이 텍스트를 분석해주세요. 책갈피 정보가 있으면 위치를, 없으면 간단한 요약을 제공하세요.
 
             텍스트:
             $text
