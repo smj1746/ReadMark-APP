@@ -27,7 +27,22 @@
       "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell am start -n com.google.android.inputmethod.latin/.setup.SetupActivity)",
       "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell settings get system system_locales)",
       "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell getprop persist.sys.locale)",
-      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell dumpsys input_method)"
+      "Bash(\"C:\\Users\\shuva\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe\" shell dumpsys input_method)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && gradlew.bat clean assembleDebug\")",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && gradlew.bat assembleDebug\")",
+      "Bash(gradlew.bat:*)",
+      "Bash(cmd /c \"C:\\Users\\shuva\\AndroidStudioProjects\\ReadMark\\build_app.bat\")",
+      "Bash(git checkout:*)",
+      "Bash(cmd /c gradlew.bat clean assembleDebug)",
+      "Bash(.\\gradlew.bat clean assembleDebug:*)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && gradlew.bat --version\")",
+      "mcp__ide__getDiagnostics",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr &amp;&amp; gradlew.bat assembleDebug\")",
+      "Bash(cmd /c:*)"
     ],
     "deny": [],
     "ask": []

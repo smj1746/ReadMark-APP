@@ -13,6 +13,7 @@ import com.readmark.data.model.AppConfig
 import com.readmark.data.model.AppStatistics
 import com.readmark.data.model.ConnectionState
 import com.readmark.data.model.ErrorType
+import com.readmark.data.model.HistoryItem
 import com.readmark.data.model.ProcessingMetadata
 import com.readmark.data.model.ProcessingMode
 import com.readmark.data.model.ProcessingResult
@@ -47,11 +48,15 @@ class MainViewModel @Inject constructor(
     private val _appConfig = MutableStateFlow(AppConfig())
     val appConfig: StateFlow<AppConfig> = _appConfig.asStateFlow()
 
+    private val _historyList = MutableStateFlow<List<HistoryItem>>(emptyList())
+    val historyList: StateFlow<List<HistoryItem>> = _historyList.asStateFlow()
+
     // ==================== 초기화 ====================
 
     init {
         loadConfiguration()
         loadStatistics()
+        loadHistory()
     }
 
     // ==================== 연결 관련 ====================
@@ -75,11 +80,20 @@ class MainViewModel @Inject constructor(
                         models = result.models,
                         message = result.message
                     )
-                    // 연결 성공 시 설정 저장
-                    updateConfig(mapOf(
+                    // 연결 성공 시 설정 저장 (첫 번째 모델을 기본 선택)
+                    val updates = mutableMapOf<String, Any>(
                         "endpoint" to testEndpoint,
                         "apiKey" to testApiKey
-                    ))
+                    )
+
+                    // 모델 목록이 있으면 첫 번째 모델을 자동 선택
+                    if (result.models.isNotEmpty()) {
+                        val firstModel = result.models.first()
+                        updates["selectedModel"] = firstModel
+                        lmStudioRepository.setModel(firstModel)
+                    }
+
+                    updateConfig(updates)
                 } else {
                     _connectionState.value = ConnectionState.Error(
                         message = result.message,
@@ -140,15 +154,25 @@ class MainViewModel @Inject constructor(
                     WorkMode.CONTINUE_READING -> ProcessingMode.CONTINUE_READING
                 }
 
+                // 선택된 모델 가져오기 (null이면 Repository의 기본 모델 사용)
+                val selectedModel = _appConfig.value.lmStudio.selectedModel.takeIf { it.isNotBlank() }
+
                 // AI 처리 수행
                 val aiResult = when (processingMode) {
                     ProcessingMode.SUMMARY -> lmStudioRepository.generateSummary(
                         text = text,
                         temperature = _appConfig.value.lmStudio.temperature,
-                        maxTokens = _appConfig.value.lmStudio.maxTokens
+                        maxTokens = _appConfig.value.lmStudio.maxTokens,
+                        model = selectedModel
                     )
-                    ProcessingMode.CONTINUE_READING -> lmStudioRepository.findBookmark(text)
-                    ProcessingMode.AUTO_DETECT -> lmStudioRepository.autoProcess(text)
+                    ProcessingMode.CONTINUE_READING -> lmStudioRepository.findBookmark(
+                        text = text,
+                        model = selectedModel
+                    )
+                    ProcessingMode.AUTO_DETECT -> lmStudioRepository.autoProcess(
+                        text = text,
+                        model = selectedModel
+                    )
                 }
 
                 aiResult.fold(
@@ -169,6 +193,9 @@ class MainViewModel @Inject constructor(
 
                         // 세션 기록 저장
                         saveSession(text, content, processingMode, tokensUsed)
+
+                        // 히스토리 저장
+                        saveHistoryItem(text, content, processingMode, tokensUsed, response.model)
                     },
                     onFailure = { error ->
                         _processingResult.value = ProcessingResult.Error(
@@ -222,6 +249,33 @@ class MainViewModel @Inject constructor(
             )
             dataManager.addSessionRecord(session)
             loadStatistics()
+        } catch (e: Exception) {
+            // 저장 실패해도 메인 처리에 영향 없음
+        }
+    }
+
+    /**
+     * 히스토리 항목 저장
+     */
+    private suspend fun saveHistoryItem(
+        inputText: String,
+        result: String,
+        mode: ProcessingMode,
+        tokensUsed: Int,
+        modelUsed: String
+    ) {
+        try {
+            val historyItem = HistoryItem(
+                id = "history_${System.currentTimeMillis()}",
+                timestamp = java.time.Instant.now().toString(),
+                inputText = inputText,
+                result = result,
+                mode = mode.name,
+                tokensUsed = tokensUsed,
+                modelUsed = modelUsed
+            )
+            dataManager.saveHistoryItem(historyItem)
+            loadHistory()
         } catch (e: Exception) {
             // 저장 실패해도 메인 처리에 영향 없음
         }
@@ -284,13 +338,68 @@ class MainViewModel @Inject constructor(
 
     /**
      * 노트 저장
+     * @return 저장된 파일 경로 또는 null
      */
-    fun saveNote(title: String, content: String): Boolean {
+    fun saveNote(title: String, content: String): String? {
         return try {
-            dataManager.saveNote(content, title)
-            true
+            val config = _appConfig.value
+            val filePath = dataManager.saveNote(
+                content = content,
+                title = title,
+                saveToExternal = config.noteSave.saveToExternal,
+                externalPath = config.noteSave.externalPath
+            )
+            filePath
         } catch (e: Exception) {
-            false
+            null
+        }
+    }
+
+    // ==================== 히스토리 관리 ====================
+
+    /**
+     * 히스토리 목록 로드
+     */
+    fun loadHistory() {
+        viewModelScope.launch {
+            try {
+                val history = dataManager.getHistoryList()
+                _historyList.value = history
+            } catch (e: Exception) {
+                // 히스토리 로드 실패 시 빈 목록 유지
+            }
+        }
+    }
+
+    /**
+     * 히스토리 항목 삭제
+     */
+    fun deleteHistoryItem(id: String) {
+        viewModelScope.launch {
+            try {
+                val success = dataManager.deleteHistoryItem(id)
+                if (success) {
+                    loadHistory()
+                }
+            } catch (e: Exception) {
+                // 삭제 실패
+            }
+        }
+    }
+
+    /**
+     * 전체 히스토리 삭제
+     */
+    fun clearAllHistory() {
+        viewModelScope.launch {
+            try {
+                val success = dataManager.clearAllHistory()
+                if (success) {
+                    loadHistory()
+                }
+            } catch (e: Exception) {
+                // 삭제 실패
+            }
         }
     }
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 내부 저장소 파일 경로 -->
+    <files-path name="internal_files" path="." />
+
+    <!-- 외부 저장소 Documents 폴더 -->
+    <external-path name="external_documents" path="Documents/" />
+
+    <!-- 외부 저장소 루트 -->
+    <external-path name="external_storage" path="." />
+
+    <!-- 캐시 디렉토리 -->
+    <cache-path name="cache" path="." />
+</paths>

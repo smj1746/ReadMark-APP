@@ -79,6 +79,7 @@ class DataManager(private val context: Context) {
     private fun applyConfigUpdates(config: AppConfig, updates: Map<String, Any>): AppConfig {
         var lmStudio = config.lmStudio
         var app = config.app
+        var noteSave = config.noteSave
 
         updates.forEach { (key, value) ->
             when (key) {
@@ -87,15 +88,19 @@ class DataManager(private val context: Context) {
                 "lastWorkingModel" -> lmStudio = lmStudio.copy(lastWorkingModel = value as? String)
                 "temperature" -> lmStudio = lmStudio.copy(temperature = (value as Number).toFloat())
                 "maxTokens" -> lmStudio = lmStudio.copy(maxTokens = (value as Number).toInt())
+                "selectedModel" -> lmStudio = lmStudio.copy(selectedModel = value as String)
                 "version" -> app = app.copy(version = value as String)
                 "lastUsed" -> app = app.copy(lastUsed = value as? String)
+                "noteSave.saveToExternal" -> noteSave = noteSave.copy(saveToExternal = value as Boolean)
+                "noteSave.externalPath" -> noteSave = noteSave.copy(externalPath = value as String)
+                "noteSave.defaultFileName" -> noteSave = noteSave.copy(defaultFileName = value as String)
             }
         }
 
         // lastUsed 자동 업데이트
         app = app.copy(lastUsed = Instant.now().toString())
 
-        return config.copy(lmStudio = lmStudio, app = app)
+        return config.copy(lmStudio = lmStudio, app = app, noteSave = noteSave)
     }
 
     private fun saveConfig(config: AppConfig) {
@@ -196,9 +201,19 @@ class DataManager(private val context: Context) {
     }
 
     /**
-     * 노트 저장
+     * 노트 저장 (외부 저장소 지원)
+     * @param content 저장할 내용
+     * @param title 파일 이름 (확장자 제외)
+     * @param saveToExternal 외부 저장소에 저장 여부
+     * @param externalPath 외부 저장소 경로 (비어있으면 Documents/ReadMark)
+     * @return 저장된 파일의 절대 경로
      */
-    fun saveNote(content: String, title: String = ""): String {
+    fun saveNote(
+        content: String,
+        title: String = "",
+        saveToExternal: Boolean = false,
+        externalPath: String = ""
+    ): String {
         return try {
             val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
                 .replace(":", "-")
@@ -211,12 +226,34 @@ class DataManager(private val context: Context) {
             }
 
             val filename = "${noteTitle}_$timestamp.md"
-            val noteFile = File(notesDir, filename)
+
+            val noteFile = if (saveToExternal) {
+                // 외부 저장소에 저장
+                val externalDir = if (externalPath.isNotBlank()) {
+                    File(externalPath)
+                } else {
+                    // 기본 경로: Documents/ReadMark
+                    val documentsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOCUMENTS
+                    )
+                    File(documentsDir, "ReadMark")
+                }
+
+                // 디렉토리가 없으면 생성
+                if (!externalDir.exists()) {
+                    externalDir.mkdirs()
+                }
+
+                File(externalDir, filename)
+            } else {
+                // 내부 저장소에 저장
+                File(notesDir, filename)
+            }
 
             noteFile.writeText(content, Charsets.UTF_8)
 
-            Log.i(TAG, "Note saved: $filename")
-            filename
+            Log.i(TAG, "Note saved: ${noteFile.absolutePath}")
+            noteFile.absolutePath
         } catch (e: Exception) {
             Log.e(TAG, "Error saving note", e)
             throw e
@@ -274,6 +311,80 @@ class DataManager(private val context: Context) {
             addSessionRecord(record)
         } catch (e: Exception) {
             Log.e(TAG, "Error saving reading position", e)
+            false
+        }
+    }
+
+    // ==================== 히스토리 기능 ====================
+
+    /**
+     * 히스토리 저장
+     */
+    fun saveHistoryItem(item: HistoryItem): Boolean {
+        return try {
+            val historyListFile = File(filesDir, "history_list.json")
+            val historyList = getHistoryList().toMutableList()
+            historyList.add(0, item) // 최신 항목을 맨 앞에
+
+            // 최대 100개까지만 저장
+            if (historyList.size > 100) {
+                historyList.removeAt(historyList.size - 1)
+            }
+
+            historyListFile.writeText(gson.toJson(historyList))
+            Log.d(TAG, "History item saved: ${item.id}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving history item", e)
+            false
+        }
+    }
+
+    /**
+     * 히스토리 목록 가져오기
+     */
+    fun getHistoryList(): List<HistoryItem> {
+        return try {
+            val historyListFile = File(filesDir, "history_list.json")
+            if (!historyListFile.exists()) return emptyList()
+
+            val json = historyListFile.readText()
+            gson.fromJson(json, Array<HistoryItem>::class.java).toList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting history list", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 히스토리 삭제
+     */
+    fun deleteHistoryItem(id: String): Boolean {
+        return try {
+            val historyListFile = File(filesDir, "history_list.json")
+            val historyList = getHistoryList().toMutableList()
+            historyList.removeIf { it.id == id }
+
+            historyListFile.writeText(gson.toJson(historyList))
+            Log.d(TAG, "History item deleted: $id")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting history item", e)
+            false
+        }
+    }
+
+    /**
+     * 전체 히스토리 삭제
+     */
+    fun clearAllHistory(): Boolean {
+        return try {
+            val historyListFile = File(filesDir, "history_list.json")
+            historyListFile.delete()
+            Log.d(TAG, "All history cleared")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing all history", e)
             false
         }
     }

@@ -50,17 +50,22 @@ fun MainScreen(
     val processingResult by viewModel.processingResult.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val historyList by viewModel.historyList.collectAsState()
 
     // 로컬 UI 상태
     var inputText by remember { mutableStateOf("") }
     var selectedMode by remember { mutableStateOf(WorkMode.AUTO_DETECT) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showHistoryScreen by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("ReadMark") },
                 actions = {
+                    IconButton(onClick = { showHistoryScreen = true }) {
+                        Icon(Icons.Default.History, contentDescription = "히스토리")
+                    }
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "설정")
                     }
@@ -116,8 +121,9 @@ fun MainScreen(
             // 5. 결과 표시
             ResultSection(
                 processingResult = processingResult,
-                onSaveNote = { content ->
-                    viewModel.saveNote("ReadMark Note", content)
+                onSaveNote = { fileName, content ->
+                    val filePath = viewModel.saveNote(fileName, content)
+                    filePath
                 }
             )
         }
@@ -132,6 +138,16 @@ fun MainScreen(
                 viewModel.updateConfig(updates)
                 showSettingsDialog = false
             }
+        )
+    }
+
+    // 히스토리 화면
+    if (showHistoryScreen) {
+        HistoryScreen(
+            historyList = historyList,
+            onDeleteItem = { id -> viewModel.deleteHistoryItem(id) },
+            onClearAll = { viewModel.clearAllHistory() },
+            onBack = { showHistoryScreen = false }
         )
     }
 }
@@ -357,8 +373,19 @@ fun InputSection(
                         lastUndoPushTime = currentTime
                     }
 
-                    textFieldValueState.value = newValue
-                    onInputChange(newValue.text)
+                    // 한글 입력 최적화: IME composition 상태를 유지하면서 커서 위치 보존
+                    val optimizedValue = if (newValue.composition != null) {
+                        // IME 조합 중일 때는 composition 정보 그대로 유지
+                        newValue
+                    } else {
+                        // 조합 완료 시 커서를 텍스트 끝으로 명시적 설정
+                        newValue.copy(
+                            selection = TextRange(newValue.selection.end)
+                        )
+                    }
+
+                    textFieldValueState.value = optimizedValue
+                    onInputChange(optimizedValue.text)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -494,8 +521,11 @@ fun ActionButtons(
 @Composable
 fun ResultSection(
     processingResult: ProcessingResult,
-    onSaveNote: (String) -> Unit
+    onSaveNote: (String, String) -> String?
 ) {
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saveResultMessage by remember { mutableStateOf<String?>(null) }
+    var currentContent by remember { mutableStateOf("") }
     when (processingResult) {
         is ProcessingResult.Idle -> {
             // 결과 없음 - 아무것도 표시 안함
@@ -571,12 +601,29 @@ fun ResultSection(
                     }
 
                     Button(
-                        onClick = { onSaveNote(processingResult.content) },
+                        onClick = {
+                            currentContent = processingResult.content
+                            showSaveDialog = true
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("노트로 저장")
+                    }
+
+                    // 저장 결과 메시지 표시
+                    saveResultMessage?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (message.contains("성공")) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
                 }
             }
@@ -613,6 +660,57 @@ fun ResultSection(
             }
         }
     }
+
+    // 파일 이름 입력 다이얼로그
+    if (showSaveDialog) {
+        var fileName by remember { mutableStateOf("ReadMark_Note") }
+
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("💾 노트 저장") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "저장할 파일 이름을 입력하세요",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    OutlinedTextField(
+                        value = fileName,
+                        onValueChange = { fileName = it },
+                        label = { Text("파일 이름") },
+                        placeholder = { Text("ReadMark_Note") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Text(
+                        text = "*.md 파일로 저장됩니다",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val filePath = onSaveNote(fileName, currentContent)
+                        if (filePath != null) {
+                            saveResultMessage = "✅ 저장 성공: $filePath"
+                        } else {
+                            saveResultMessage = "❌ 저장 실패: 권한을 확인하세요"
+                        }
+                        showSaveDialog = false
+                    }
+                ) {
+                    Text("저장")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) {
+                    Text("취소")
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -624,10 +722,13 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
     onSave: (Map<String, Any>) -> Unit
 ) {
-    var endpoint by remember { mutableStateOf(config.lmStudio.endpoint) }
-    var apiKey by remember { mutableStateOf(config.lmStudio.apiKey) }
+    // 한글 입력 최적화를 위해 TextFieldValue 사용
+    var endpointValue by remember { mutableStateOf(TextFieldValue(config.lmStudio.endpoint)) }
+    var apiKeyValue by remember { mutableStateOf(TextFieldValue(config.lmStudio.apiKey)) }
     var temperature by remember { mutableStateOf(config.lmStudio.temperature) }
     var maxTokens by remember { mutableStateOf(config.lmStudio.maxTokens) }
+    var saveToExternal by remember { mutableStateOf(config.noteSave.saveToExternal) }
+    var savePathValue by remember { mutableStateOf(TextFieldValue(config.noteSave.externalPath)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -637,8 +738,15 @@ fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedTextField(
-                    value = endpoint,
-                    onValueChange = { endpoint = it },
+                    value = endpointValue,
+                    onValueChange = { newValue ->
+                        // 한글 입력 최적화
+                        endpointValue = if (newValue.composition != null) {
+                            newValue
+                        } else {
+                            newValue.copy(selection = TextRange(newValue.selection.end))
+                        }
+                    },
                     label = { Text("LM Studio Endpoint") },
                     placeholder = { Text("http://10.0.2.2:1234") },
                     modifier = Modifier.fillMaxWidth(),
@@ -646,8 +754,15 @@ fun SettingsDialog(
                     keyboardActions = KeyboardActions.Default
                 )
                 OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
+                    value = apiKeyValue,
+                    onValueChange = { newValue ->
+                        // 한글 입력 최적화
+                        apiKeyValue = if (newValue.composition != null) {
+                            newValue
+                        } else {
+                            newValue.copy(selection = TextRange(newValue.selection.end))
+                        }
+                    },
                     label = { Text("API Key") },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -670,16 +785,59 @@ fun SettingsDialog(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions.Default
                 )
+
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Text(
+                    text = "📁 노트 저장 설정",
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Checkbox(
+                        checked = saveToExternal,
+                        onCheckedChange = { saveToExternal = it }
+                    )
+                    Text(
+                        text = "외부 저장소에 저장",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                if (saveToExternal) {
+                    OutlinedTextField(
+                        value = savePathValue,
+                        onValueChange = { newValue ->
+                            // 한글 입력 최적화
+                            savePathValue = if (newValue.composition != null) {
+                                newValue
+                            } else {
+                                newValue.copy(selection = TextRange(newValue.selection.end))
+                            }
+                        },
+                        label = { Text("저장 경로") },
+                        placeholder = { Text("/storage/emulated/0/Documents/ReadMark") },
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = {
+                            Text("비워두면 Documents/ReadMark에 저장됩니다")
+                        }
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     onSave(mapOf(
-                        "endpoint" to endpoint,
-                        "apiKey" to apiKey,
+                        "endpoint" to endpointValue.text,
+                        "apiKey" to apiKeyValue.text,
                         "temperature" to temperature,
-                        "maxTokens" to maxTokens
+                        "maxTokens" to maxTokens,
+                        "noteSave.saveToExternal" to saveToExternal,
+                        "noteSave.externalPath" to savePathValue.text
                     ))
                 }
             ) {
