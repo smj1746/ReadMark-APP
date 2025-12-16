@@ -26,6 +26,9 @@
 - 🔒 **프라이버시**: 로컬 실행으로 개인정보 보호
 - 📱 **모바일 최적화**: 언제 어디서나 사용 가능
 
+- 📺 앱 사용 데모 영상
+![RE:FIT 시연 영상][https://youtube.com/shorts/qedHIyl7LOo]
+
 ### ✨ 특징
 
 ```
@@ -424,3 +427,4 @@ copies of the Software...
 [⬆ 맨 위로 돌아가기](#-readmark)
 
 </div>
+
